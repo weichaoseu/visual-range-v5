@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>视觉测距 · 目标端（二维码标记）</title>
+<style>
+  html,body{ margin:0; height:100%; background:#000; overflow:hidden; }
+  #wrap{ position:fixed; top:0; left:0; right:0; bottom:76px; display:flex; align-items:center; justify-content:center; }
+  #qr{ width:min(100vw,100vh); height:min(100vw,100vh); background:#fff; }
+  #hint{ position:fixed; bottom:0; left:0; right:0; text-align:center; color:#fff; background:rgba(0,0,0,.75); font-size:13px; padding:10px; font-family:sans-serif; line-height:1.6; }
+</style>
+</head>
+<body>
+  <div id="wrap"><img id="qr" alt="二维码标记"></div>
+  <div id="hint">
+    二维码标记 · 边长 = 屏幕短边<br>
+    测量端填短边宽度(mm)，放 1 米处校准后对准二维码
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+  <script>
+    if (typeof qrcode !== 'undefined'){
+      const qr = qrcode(0, 'M');
+      qr.addData('OK');
+      qr.make();
+      document.getElementById('qr').src = qr.createDataURL(16, 4);
+    } else {
+      document.getElementById('qr').alt = '二维码库加载失败，请检查网络';
+    }
+    if (navigator.wakeLock){ navigator.wakeLock.request('screen').catch(()=>{}); }
+  </script>
+</body>
+</html>

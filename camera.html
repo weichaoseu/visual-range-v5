@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>视觉测距 · 测量端（二维码）</title>
+<style>
+  :root{ --bg:#0f1420; --panel:#1a2233; --line:#2a3448; --txt:#e6edf7; --dim:#8a97ad; --acc:#3fb6ff; --ok:#3fd68f; }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--txt); display:flex; flex-direction:column; }
+  #videoWrap{ flex:1; position:relative; background:#000; overflow:hidden; }
+  #video{ width:100%; height:100%; object-fit:cover; }
+  #dist{ position:absolute; top:16px; left:0; right:0; text-align:center; font-size:36px; font-weight:700; color:#fff; text-shadow:0 1px 5px rgba(0,0,0,.9); font-variant-numeric:tabular-nums; }
+  #panel{ padding:12px 16px; background:var(--panel); border-top:1px solid var(--line); }
+  .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  label{ font-size:14px; color:var(--dim); }
+  input[type=number]{ width:96px; background:#0c1220; border:1px solid var(--line); color:var(--txt); border-radius:6px; padding:8px 10px; font-size:15px; }
+  button{ background:var(--acc); color:#04121f; border:none; border-radius:8px; padding:10px 16px; font-size:14px; font-weight:600; cursor:pointer; }
+  button.sec{ background:#2a3448; color:var(--txt); }
+  #status{ font-size:12.5px; color:var(--dim); min-height:18px; margin-bottom:4px; }
+  #hint{ font-size:12px; color:var(--dim); line-height:1.6; }
+</style>
+</head>
+<body>
+  <div id="videoWrap">
+    <video id="video" autoplay playsinline muted></video>
+    <div id="dist">距离：---</div>
+  </div>
+  <div id="panel">
+    <div class="row">
+      <label>标记边长(mm)</label>
+      <input type="number" id="mmInput" value="70" min="20" max="200" step="1">
+      <button id="calibBtn">校准（放 1 米处）</button>
+      <button id="clearCalibBtn" class="sec">清除校准</button>
+    </div>
+    <div class="row">
+      <button id="switchBtn" class="sec">切换前后摄像头</button>
+      <span id="camLabel">后置</span>
+    </div>
+    <div id="status">点击视频区域启动相机…</div>
+    <div id="hint">
+      1. 另一台手机打开 <b>marker.html</b>（二维码标记），屏幕调亮<br>
+      2. 用尺量那台手机屏幕的<b>短边宽度(mm)</b>，填到上面<br>
+      3. 把标记手机放到正好 <b>1 米</b>处，点「校准」<br>
+      4. 之后对准二维码，实时显示距离<br>
+      <span style="color:#ffb454">⚠ 切换摄像头后需重新校准</span>
+    </div>
+  </div>
+  <canvas id="canvas" style="display:none"></canvas>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <script>
+  "use strict";
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const mmInput = document.getElementById('mmInput');
+  const calibBtn = document.getElementById('calibBtn');
+  const distEl = document.getElementById('dist');
+  const statusEl = document.getElementById('status');
+  const camLabel = document.getElementById('camLabel');
+
+  const CW = 1280, CH = 720;
+  canvas.width = CW; canvas.height = CH;
+
+  let facing = 'environment';
+  let camOn = false;
+  let lastWidthPx = null;
+  let focalPx = null;
+
+  function loadFocal(){ focalPx = parseFloat(localStorage.getItem('vr_focalPx_' + facing)) || null; }
+  function saveFocal(){ if (focalPx) localStorage.setItem('vr_focalPx_' + facing, focalPx); }
+  function clearFocal(){ localStorage.removeItem('vr_focalPx_' + facing); }
+  loadFocal();
+
+  async function startCam(mode){
+    if (mode && mode !== facing){
+      facing = mode;
+      loadFocal();
+      camLabel.textContent = (facing === 'environment') ? '后置' : '前置';
+    }
+    if (video.srcObject){
+      video.srcObject.getTracks().forEach(t => t.stop());
+      video.srcObject = null;
+    }
+    camOn = false;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } } });
+      video.srcObject = stream;
+      await video.play();
+      camOn = true;
+      statusEl.textContent = (facing === 'environment' ? '后置' : '前置') + '摄像头已启动'
+        + (focalPx ? '（已校准）' : '（需校准：放 1 米处点校准）');
+    } catch(e){
+      statusEl.textContent = '相机启动失败：' + e.message + '（需 HTTPS/localhost，点击视频区域重试）';
+    }
+  }
+
+  function loop(){
+    if (camOn && video.readyState >= 2 && typeof jsQR !== 'undefined'){
+      ctx.drawImage(video, 0, 0, CW, CH);
+      const img = ctx.getImageData(0, 0, CW, CH);
+      const code = jsQR(img.data, CW, CH);
+      if (code && code.location){
+        const c = code.location;
+        const xs = [c.topLeftCorner.x, c.topRightCorner.x, c.bottomRightCorner.x, c.bottomLeftCorner.x];
+        const ys = [c.topLeftCorner.y, c.topRightCorner.y, c.bottomRightCorner.y, c.bottomLeftCorner.y];
+        const w = Math.max.apply(null, xs) - Math.min.apply(null, xs);
+        const h = Math.max.apply(null, ys) - Math.min.apply(null, ys);
+        lastWidthPx = w;
+        const physicalMm = parseFloat(mmInput.value);
+        if (focalPx && physicalMm > 0){
+          const distCm = physicalMm * focalPx / lastWidthPx / 10;
+          distEl.textContent = distCm < 200 ? (distCm.toFixed(1) + ' cm') : ((distCm/100).toFixed(2) + ' m');
+        } else {
+          distEl.textContent = '检测到二维码 · 请先校准';
+        }
+      } else {
+        lastWidthPx = null;
+        distEl.textContent = '未检测到二维码';
+      }
+    } else if (typeof jsQR === 'undefined'){
+      distEl.textContent = '二维码库加载失败';
+    }
+    requestAnimationFrame(loop);
+  }
+
+  calibBtn.addEventListener('click', () => {
+    if (!lastWidthPx){ statusEl.textContent = '请先把相机对准二维码（1 米处）'; return; }
+    const physicalMm = parseFloat(mmInput.value);
+    if (!physicalMm || physicalMm <= 0){ statusEl.textContent = '请先填写标记边长(mm)'; return; }
+    focalPx = lastWidthPx * 1000 / physicalMm;   // 1000mm = 1 米
+    saveFocal();
+    statusEl.textContent = '校准完成 ✓ 焦距 ' + focalPx.toFixed(1) + ' px（' + camLabel.textContent + '摄像头）';
+  });
+
+  document.getElementById('clearCalibBtn').addEventListener('click', () => {
+    focalPx = null;
+    clearFocal();
+    statusEl.textContent = '已清除' + camLabel.textContent + '摄像头校准';
+  });
+
+  document.getElementById('switchBtn').addEventListener('click', () => startCam(facing==='environment'?'user':'environment'));
+  document.getElementById('videoWrap').addEventListener('click', () => { if (!camOn) startCam(); });
+  startCam();
+  requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
