@@ -59,8 +59,7 @@
   const statusEl = document.getElementById('status');
   const camLabel = document.getElementById('camLabel');
 
-  const CW = 1280, CH = 720;
-  canvas.width = CW; canvas.height = CH;
+  // 画布尺寸在 loop 里按视频真实宽高比动态设置（避免 4:3→16:9 拉伸变形）
 
   let facing = 'environment';
   let camOn = false;
@@ -97,26 +96,34 @@
 
   function loop(){
     if (camOn && video.readyState >= 2 && typeof jsQR !== 'undefined'){
-      ctx.drawImage(video, 0, 0, CW, CH);
-      const img = ctx.getImageData(0, 0, CW, CH);
-      const code = jsQR(img.data, CW, CH);
-      if (code && code.location){
-        const c = code.location;
-        const xs = [c.topLeftCorner.x, c.topRightCorner.x, c.bottomRightCorner.x, c.bottomLeftCorner.x];
-        const ys = [c.topLeftCorner.y, c.topRightCorner.y, c.bottomRightCorner.y, c.bottomLeftCorner.y];
-        const w = Math.max.apply(null, xs) - Math.min.apply(null, xs);
-        const h = Math.max.apply(null, ys) - Math.min.apply(null, ys);
-        lastWidthPx = w;
-        const physicalMm = parseFloat(mmInput.value);
-        if (focalPx && physicalMm > 0){
-          const distCm = physicalMm * focalPx / lastWidthPx / 10;
-          distEl.textContent = distCm < 200 ? (distCm.toFixed(1) + ' cm') : ((distCm/100).toFixed(2) + ' m');
+      const vw = video.videoWidth, vh = video.videoHeight;
+      if (vw > 0 && vh > 0){
+        // 按视频真实宽高比设置画布，限宽 1280，避免拉伸变形
+        const scale = Math.min(1, 1280 / vw);
+        const cw = Math.round(vw * scale), ch = Math.round(vh * scale);
+        if (canvas.width !== cw || canvas.height !== ch){ canvas.width = cw; canvas.height = ch; }
+        ctx.drawImage(video, 0, 0, cw, ch);
+        const img = ctx.getImageData(0, 0, cw, ch);
+        let code = null;
+        try { code = jsQR(img.data, cw, ch); } catch(e){ code = null; }
+        if (code && code.location){
+          const c = code.location;
+          const xs = [c.topLeftCorner.x, c.topRightCorner.x, c.bottomRightCorner.x, c.bottomLeftCorner.x];
+          const ys = [c.topLeftCorner.y, c.topRightCorner.y, c.bottomRightCorner.y, c.bottomLeftCorner.y];
+          const w = Math.max.apply(null, xs) - Math.min.apply(null, xs);
+          const h = Math.max.apply(null, ys) - Math.min.apply(null, ys);
+          lastWidthPx = w;
+          const physicalMm = parseFloat(mmInput.value);
+          if (focalPx && physicalMm > 0){
+            const distCm = physicalMm * focalPx / lastWidthPx / 10;
+            distEl.textContent = distCm < 200 ? (distCm.toFixed(1) + ' cm') : ((distCm/100).toFixed(2) + ' m');
+          } else {
+            distEl.textContent = '检测到二维码 · 请先校准';
+          }
         } else {
-          distEl.textContent = '检测到二维码 · 请先校准';
+          lastWidthPx = null;
+          distEl.textContent = '未检测到二维码（视频 ' + vw + '×' + vh + '）';
         }
-      } else {
-        lastWidthPx = null;
-        distEl.textContent = '未检测到二维码';
       }
     } else if (typeof jsQR === 'undefined'){
       distEl.textContent = '二维码库加载失败';
